@@ -1,9 +1,15 @@
+
 import { spawn } from 'child_process';
 import RemoteClient, { ConnectOption, Config } from './remoteClient';
 
 export default class SSHClient extends RemoteClient {
   constructor(option: ConnectOption) {
     super(option);
+  }
+
+  // Override to prevent error: no persistent client to listen on
+  onDisconnected(cb: (reason: string) => void) {
+    // No-op for command-line SSH client
   }
 
   async _doConnect(connectOption: ConnectOption, config: Config): Promise<void> {
@@ -35,14 +41,18 @@ export default class SSHClient extends RemoteClient {
 
   runSftpCommand(commands: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      const args = [
+      let args = [
         '-o', 'BatchMode=yes',
-        '-P', String(this._option.port || 22),
-        `${this._option.username}@${this._option.host}`
+        '-P', String(this._option.port || 22)
       ];
       if (this._option.privateKeyPath) {
         args.unshift('-i', this._option.privateKeyPath);
       }
+      // Nếu có SFTPserver, thêm -s 'sudo ...' vào đúng vị trí trước user@host
+      if (this._option.SFTPserver) {
+        args.push('-s', this._option.SFTPserver);
+      }
+      args.push(`${this._option.username}@${this._option.host}`);
       const proc = spawn('sftp', args, { stdio: ['pipe', 'pipe', 'pipe'] });
       let output = '';
       let error = '';

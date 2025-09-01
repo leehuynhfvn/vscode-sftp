@@ -18,6 +18,7 @@ export interface ConnectOption {
   sock?: any;
   hop?: ConnectOption | ConnectOption[];
   limitOpenFilesOnRemote?: boolean | number;
+  SFTPserver?: string; // Đường dẫn sftp-server nếu cần chạy với sudo
 
   // ftp-only
   secure?: any;

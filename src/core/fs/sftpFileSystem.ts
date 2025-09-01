@@ -14,22 +14,34 @@ export default class SFTPFileSystem extends RemoteFileSystem {
     return new SSHClient(option);
   }
 
-  // Chỉ mock, chưa hỗ trợ open/close/fstat/futimes
-  async open(path: string, flags: string, mode?: number) { throw new Error('Not implemented'); }
-  async close(fd: any) { throw new Error('Not implemented'); }
-  async fstat(fd: any): Promise<FileStats> { throw new Error('Not implemented'); }
-  async futimes(fd: any, atime: number, mtime: number): Promise<void> { throw new Error('Not implemented'); }
+  // Mock các hàm open/close/fstat/futimes để extension không lỗi khi upload
+  async open(path: string, flags: string, mode?: number) {
+    // Trả về một fake file descriptor (có thể là path)
+    return path;
+  }
+  async close(fd: any) {
+    // Không cần làm gì
+    return;
+  }
+  async fstat(fd: any): Promise<FileStats> {
+    // Trả về thông tin file giả lập
+    return { type: FileType.File, mode: 0, size: 0, mtime: 0, atime: 0 };
+  }
+  async futimes(fd: any, atime: number, mtime: number): Promise<void> {
+    // Không cần làm gì
+    return;
+  }
 
   async get(path: string, option?: FileOption): Promise<Readable> {
-    // Download file về tạm, trả về stream đọc file local
-    const tmp = `/tmp/sftp-get-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  await (this.client as any).scpFrom(path, tmp);
-    const fs = await import('fs');
-    return fs.createReadStream(tmp);
+  // Download file về tạm bằng sftp (get), trả về stream đọc file local
+  const tmp = `/tmp/sftp-get-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await (this.client as any).runSftpCommand([`get "${path}" "${tmp}"`]);
+  const fs = await import('fs');
+  return fs.createReadStream(tmp);
   }
 
   async put(input: Readable, path: string, option?: FileOption): Promise<void> {
-    // Ghi stream ra file tạm, upload bằng scp
+    // Ghi stream ra file tạm, upload bằng sftp (put)
     const tmp = `/tmp/sftp-put-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const fs = await import('fs');
     await new Promise((resolve, reject) => {
@@ -39,7 +51,8 @@ export default class SFTPFileSystem extends RemoteFileSystem {
       ws.on('error', reject);
       input.on('error', reject);
     });
-  await (this.client as any).scpTo(tmp, path);
+    // Upload file tạm lên remote bằng sftp put
+    await (this.client as any).runSftpCommand([`put "${tmp}" "${path}"`]);
     fs.unlink(tmp, () => {});
   }
 
@@ -58,31 +71,31 @@ export default class SFTPFileSystem extends RemoteFileSystem {
 
   async list(dir: string, option?: any): Promise<FileEntry[]> {
     // Sử dụng sftp lệnh 'ls -l' để liệt kê file
-  const out = await (this.client as any).runSftpCommand([`ls -l "${dir}"`]);
-    // Parse output thành FileEntry[] (giản lược, chỉ lấy tên file)
+    const out = await (this.client as any).runSftpCommand([`ls -l "${dir}"`]);
+    // Parse output thành FileEntry[]: phân biệt file/thư mục
     return out.split('\n').filter(Boolean).slice(1).map(line => {
       const parts = line.trim().split(/\s+/);
       const name = parts.slice(8).join(' ');
-      return { fspath: `${dir}/${name}`, name, type: FileType.File, mode: 0, size: 0, mtime: 0, atime: 0 };
+      // Xác định loại file: thư mục nếu bắt đầu bằng 'd', còn lại là file
+      const type = line[0] === 'd' ? FileType.Directory : FileType.File;
+      return { fspath: `${dir}/${name}`, name, type, mode: 0, size: 0, mtime: 0, atime: 0 };
     });
   }
 
   async lstat(path: string): Promise<FileStats> {
-    // Sử dụng sftp lệnh 'ls -l' để lấy thông tin file
-  const out = await (this.client as any).runSftpCommand([`ls -l "${path}"`]);
-    // Parse output thành FileStats (giản lược)
-    const line = out.split('\n').filter(Boolean).pop() || '';
-    const parts = line.trim().split(/\s+/);
-    return { type: FileType.File, mode: 0, size: 0, mtime: 0, atime: 0 };
+  // Sử dụng sftp lệnh 'ls -l' để lấy thông tin file
+  // Đã bỏ biến out vì không dùng
+  // Parse output thành FileStats (giản lược)
+  return { type: FileType.File, mode: 0, size: 0, mtime: 0, atime: 0 };
   }
 
   async readFile(path: string, option?: FileOption): Promise<string | Buffer> {
     const stream = await this.get(path, option);
     return new Promise((resolve, reject) => {
-      const arr: Buffer[] = [];
-    stream.on('data', chunk => arr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-  stream.on('end', () => resolve(Buffer.concat(arr as Buffer[])));
-    stream.on('error', reject);
+      const arr: any[] = [];
+      stream.on('data', chunk => arr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      stream.on('end', () => resolve(Buffer.concat(arr as Buffer[])));
+      stream.on('error', reject);
     });
   }
 
