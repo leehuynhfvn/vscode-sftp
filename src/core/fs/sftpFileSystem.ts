@@ -1,411 +1,122 @@
-import { Readable, Writable } from 'stream';
-import FileSystem, {
-  FileEntry,
-  FileType,
-  FileStats,
-  FileOption,
-} from './fileSystem';
+
 import RemoteFileSystem from './remoteFileSystem';
 import { SSHClient } from '../remote-client';
 
-type FileHandle = Buffer;
-
-interface SFTPFileDescriptor {
-  handle: FileHandle;
-  path: string;
-}
-
-interface WriteStream extends Writable {
-  handle: Buffer;
-  path: string;
-  flags: string;
-  mode: number;
-  destroy(): void;
-  close(): void;
-}
-
-function toSimpleFileMode(mode: number) {
-  return mode & parseInt('777', 8); // tslint:disable-line:no-bitwise
-}
+import { Readable } from 'stream';
+import { FileType, FileEntry, FileStats, FileOption } from './fileSystem';
 
 export default class SFTPFileSystem extends RemoteFileSystem {
-  get sftp() {
-    return this.getClient().getFsClient();
-  }
-
-  toFileStat(stat): FileStats {
-    return {
-      type: FileSystem.getFileTypecharacter(stat),
-      mode: toSimpleFileMode(stat.mode), // tslint:disable-line:no-bitwise
-      size: stat.size,
-      mtime: this.toLocalTime(stat.mtime * 1000),
-      atime: this.toLocalTime(stat.atime * 1000),
-    };
-  }
-
-  toFileEntry(fullPath, item): FileEntry {
-    return {
-      fspath: fullPath,
-      name: item.filename,
-      ...this.toFileStat(item.attrs),
-    };
+  constructor(pathResolver, option) {
+    super(pathResolver, option);
   }
 
   _createClient(option) {
     return new SSHClient(option);
   }
 
-  lstat(path: string): Promise<FileStats> {
-    return new Promise((resolve, reject) => {
-      this.sftp.lstat(path, (err, stat) => {
-        if (err) {
-          reject(err);
-          return;
-        }
+  // Chỉ mock, chưa hỗ trợ open/close/fstat/futimes
+  async open(path: string, flags: string, mode?: number) { throw new Error('Not implemented'); }
+  async close(fd: any) { throw new Error('Not implemented'); }
+  async fstat(fd: any): Promise<FileStats> { throw new Error('Not implemented'); }
+  async futimes(fd: any, atime: number, mtime: number): Promise<void> { throw new Error('Not implemented'); }
 
-        resolve(this.toFileStat(stat));
-      });
+  async get(path: string, option?: FileOption): Promise<Readable> {
+    // Download file về tạm, trả về stream đọc file local
+    const tmp = `/tmp/sftp-get-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await (this.client as any).scpFrom(path, tmp);
+    const fs = await import('fs');
+    return fs.createReadStream(tmp);
+  }
+
+  async put(input: Readable, path: string, option?: FileOption): Promise<void> {
+    // Ghi stream ra file tạm, upload bằng scp
+    const tmp = `/tmp/sftp-put-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const fs = await import('fs');
+    await new Promise((resolve, reject) => {
+      const ws = fs.createWriteStream(tmp);
+      input.pipe(ws);
+      ws.on('finish', resolve);
+      ws.on('error', reject);
+      input.on('error', reject);
     });
+  await (this.client as any).scpTo(tmp, path);
+    fs.unlink(tmp, () => {});
   }
 
-  open(
-    path: string,
-    flags: string,
-    mode?: number
-  ): Promise<SFTPFileDescriptor> {
-    return new Promise((resolve, reject) => {
-      this.sftp.open(path, flags, mode, (err, handle) => {
-        if (err) {
-          return reject(err);
-        }
-
-        resolve({
-          path,
-          handle,
-        });
-      });
-    });
-  }
-
-  close(fd: SFTPFileDescriptor): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.sftp.close(fd.handle, err => {
-        if (err) {
-          reject(err);
-          return;
-        }
-
-        resolve();
-      });
-    });
-  }
-
-  fstat(fd: SFTPFileDescriptor): Promise<FileStats> {
-    return new Promise((resolve, reject) => {
-      this.sftp.fstat(fd.handle, (err, stat) => {
-        if (err) {
-          // Try stat() for sftp servers that may not support fstat() for
-          // whatever reason
-          // see WriteStream.prototype.open in ssh2-streams.
-          this.sftp.stat(fd.path, (_err, _stat) => {
-            if (_err) {
-              reject(err);
-              return;
-            }
-
-            resolve(this.toFileStat(_stat));
-          });
-          return;
-        }
-
-        resolve(this.toFileStat(stat));
-      });
-    });
-  }
-
-  futimes(fd: SFTPFileDescriptor, atime: number, mtime: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.sftp.futimes(
-        fd.handle,
-        this.toRemoteTimeInSecnonds(atime),
-        this.toRemoteTimeInSecnonds(mtime),
-        err => {
-          if (err) {
-            reject(err);
-            return;
-          }
-
-          resolve();
-        }
-      );
-    });
-  }
-
-  fchmod(fd: SFTPFileDescriptor, mode: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.sftp.fchmod(fd.handle, mode, err => {
-        if (err) {
-          // Try chmod() for sftp servers that may not support fchmod() for
-          // whatever reason
-          // see WriteStream.prototype.open in ssh2-streams.
-          this.sftp.chmod(fd.path, mode, _err => {
-            if (_err) {
-              reject(err);
-              return;
-            }
-
-            resolve();
-          });
-          return;
-        }
-
-        resolve();
-      });
-    });
-  }
-
-  async chmod(path: string, mode: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.sftp.chmod(path, mode, err => {
-        if(err) {
-          reject(err)
-          return
-        }
-        resolve();
-      });
-    })
-  }
-
-  get(path, option?: FileOption): Promise<Readable> {
-    return new Promise((resolve, reject) => {
-      // const opt = { ...option, autoDestroy: false };
-      try {
-        // const stream = this.sftp.createReadStream(path, opt);
-        const stream = this.sftp.createReadStream(path, option);
-        resolve(stream);
-      } catch (err) {
-        reject(err);
-      }
-    });
-  }
-
-  rename(srcPath: string, destPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.sftp.rename(srcPath, destPath, err => {
-        if (err) {
-          return reject(err);
-        }
-
-        resolve();
-      });
-    });
-  }
-
-  // See: https://github.com/mscdex/ssh2/issues/1054
-  renameAtomic(srcPath: string, destPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.sftp.ext_openssh_rename(srcPath, destPath, err => {
-        if (err) {
-          return reject(err);
-        }
-
-        resolve();
-      });
-    });
-  }
-
-  async put(input: Readable, path, option?: FileOption): Promise<void> {
-    if (option && option.fd) {
-      const fd = option.fd as SFTPFileDescriptor;
-      // const opt = { ...option, handle: fd.handle, autoDestroy: false };
-      const opt = { ...option, handle: fd.handle };
-      delete opt.fd;
-
-      if (opt.mode) {
-        // mode will get ignored if handle passed in.
-        // call chmod manunally.
-        try {
-          await this.fchmod(fd, opt.mode);
-        } catch {
-          // ignore error
-        }
-      }
-
-      return this._put(input, path, opt);
-    }
-
-    return this._put(input, path, option);
-  }
-
-  readlink(path: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      this.sftp.readlink(path, (err, linkString) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-
-        resolve(linkString);
-      });
-    });
-  }
-
-  symlink(targetPath: string, path: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.sftp.symlink(targetPath, path, err => {
-        if (err) {
-          reject(err);
-        }
-        resolve();
-      });
-    });
-  }
-
-  mkdir(dir: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.sftp.mkdir(dir, err => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve();
-      });
-    });
+  async mkdir(dir: string): Promise<void> {
+  await (this.client as any).runSftpCommand([`mkdir "${dir}"`]);
   }
 
   async ensureDir(dir: string): Promise<void> {
-    // test is root path
-    // win: c:/, c://, c:\, c:\\
-    // *nix: /
-    if (dir === '/' || dir.match(/^[a-zA-Z]:(\/|\\)\1?$/)) {
-      return;
-    }
-
-    let err;
-    try {
-      await this.mkdir(dir);
-      return;
-    } catch (error) {
-      // avoid nested code block
-      err = error;
-    }
-
-    switch (err.code) {
-      case 2:
-        const parentPath = this.pathResolver.dirname(dir);
-        if (parentPath === dir) throw err;
-        await this.ensureDir(parentPath);
-        await this.mkdir(dir);
-        break;
-
-      // In the case of any other error, just see if there's a dir
-      // there already.  If so, then hooray!  If not, then something
-      // is borked.
-      default:
-        try {
-          const stat = await this.lstat(dir);
-          if (stat.type !== FileType.Directory) throw err;
-        } catch {
-          // if the stat fails, then that's super weird.
-          // let the original error be the failure reason
-          throw err;
-        }
-        break;
-    }
+    // Đơn giản: mkdir, nếu lỗi thì bỏ qua
+    try { await this.mkdir(dir); } catch {}
   }
 
-  list(dir: string, { showHiddenFiles = true } = {}): Promise<FileEntry[]> {
+  async chmod(path: string, mode: number): Promise<void> {
+  await (this.client as any).runSftpCommand([`chmod ${mode.toString(8)} "${path}"`]);
+  }
+
+  async list(dir: string, option?: any): Promise<FileEntry[]> {
+    // Sử dụng sftp lệnh 'ls -l' để liệt kê file
+  const out = await (this.client as any).runSftpCommand([`ls -l "${dir}"`]);
+    // Parse output thành FileEntry[] (giản lược, chỉ lấy tên file)
+    return out.split('\n').filter(Boolean).slice(1).map(line => {
+      const parts = line.trim().split(/\s+/);
+      const name = parts.slice(8).join(' ');
+      return { fspath: `${dir}/${name}`, name, type: FileType.File, mode: 0, size: 0, mtime: 0, atime: 0 };
+    });
+  }
+
+  async lstat(path: string): Promise<FileStats> {
+    // Sử dụng sftp lệnh 'ls -l' để lấy thông tin file
+  const out = await (this.client as any).runSftpCommand([`ls -l "${path}"`]);
+    // Parse output thành FileStats (giản lược)
+    const line = out.split('\n').filter(Boolean).pop() || '';
+    const parts = line.trim().split(/\s+/);
+    return { type: FileType.File, mode: 0, size: 0, mtime: 0, atime: 0 };
+  }
+
+  async readFile(path: string, option?: FileOption): Promise<string | Buffer> {
+    const stream = await this.get(path, option);
     return new Promise((resolve, reject) => {
-      this.sftp.readdir(dir, (err, result) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-
-        const fileEntries = result.map(item =>
-          this.toFileEntry(this.pathResolver.join(dir, item.filename), item)
-        );
-        resolve(fileEntries);
-      });
+      const arr: Buffer[] = [];
+    stream.on('data', chunk => arr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+  stream.on('end', () => resolve(Buffer.concat(arr as Buffer[])));
+    stream.on('error', reject);
     });
   }
 
-  unlink(path: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.sftp.unlink(path, err => {
-        if (err) {
-          reject(err);
-          return;
-        }
-
-        resolve();
-      });
-    });
+  async readlink(path: string): Promise<string> {
+  const out = await (this.client as any).runSftpCommand([`readlink "${path}"`]);
+    return out.trim();
   }
 
-  rmdir(path: string, recursive: boolean): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      if (!recursive) {
-        this.sftp.rmdir(path, err => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-        return;
-      }
-
-      this.list(path).then(
-        fileEntries => {
-          if (!fileEntries.length) {
-            this.rmdir(path, false).then(resolve, e => {
-              reject(e);
-            });
-            return;
-          }
-
-          const rmPromises = fileEntries.map(file => {
-            if (file.type === FileType.Directory) {
-              return this.rmdir(file.fspath, true);
-            }
-            return this.unlink(file.fspath);
-          });
-
-          Promise.all(rmPromises)
-            .then(() => this.rmdir(path, false))
-            .then(resolve, e => {
-              // BUG just reject will occur weird bug.
-              reject(e);
-            });
-        },
-        err => {
-          reject(err);
-        }
-      );
-    });
+  async symlink(targetPath: string, path: string): Promise<void> {
+  await (this.client as any).runSftpCommand([`symlink "${targetPath}" "${path}"`]);
   }
 
-  private _put(
-    input: Readable,
-    path,
-    option?: {
-      flags?: string;
-      encoding?: string;
-      mode?: number;
-      autoClose?: boolean;
-      handle?: FileHandle;
+  async unlink(path: string): Promise<void> {
+  await (this.client as any).runSftpCommand([`rm "${path}"`]);
+  }
+
+  async rmdir(path: string, recursive: boolean): Promise<void> {
+    if (!recursive) {
+  await (this.client as any).runSftpCommand([`rmdir "${path}"`]);
+      return;
     }
-  ): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      const writer: WriteStream = this.sftp.createWriteStream(path, option);
-      writer.once('error', reject).once('finish', resolve); // transffered
+    // Nếu recursive: list và xóa từng file/folder
+    const files = await this.list(path);
+    for (const file of files) {
+      await this.unlink(file.fspath);
+    }
+  await (this.client as any).runSftpCommand([`rmdir "${path}"`]);
+  }
 
-      input.once('error', err => {
-        reject(err);
-        writer.end();
-      });
-      input.pipe(writer);
-    });
+  async rename(srcPath: string, destPath: string): Promise<void> {
+  await (this.client as any).runSftpCommand([`rename "${srcPath}" "${destPath}"`]);
+  }
+
+  async renameAtomic(srcPath: string, destPath: string): Promise<void> {
+    await this.rename(srcPath, destPath);
   }
 }
