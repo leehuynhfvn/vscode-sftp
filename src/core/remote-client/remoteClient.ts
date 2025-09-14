@@ -19,6 +19,12 @@ export interface ConnectOption {
   hop?: ConnectOption | ConnectOption[];
   limitOpenFilesOnRemote?: boolean | number;
   SFTPserver?: string; // Đường dẫn sftp-server nếu cần chạy với sudo
+  // extra derived from ssh config
+  sshExtraOptions?: string[]; // e.g. ['ProxyCommand=...', 'UserKnownHostsFile=...', 'CertificateFile=...']
+  proxyCommand?: string;
+  certificateFile?: string;
+  userKnownHostsFile?: string;
+  strictHostKeyChecking?: boolean; // when false => add -o StrictHostKeyChecking=no
 
   // ftp-only
   secure?: any;

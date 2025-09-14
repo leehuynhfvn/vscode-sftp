@@ -296,6 +296,44 @@ In sftp.json:
 2. Set `sftp.debug` to `true` and reload vscode.
 3. View the logs in `View > Output > sftp`.
 
+## Automatic SSH Config Resolution
+You can now omit `username`, `port`, and `privateKeyPath` in `sftp.json`. The extension will read them from your SSH config (defaults to `~/.ssh/config` or a custom file via `sshConfigPath`).
+
+Minimal example:
+```json
+{
+  "host": "my-alias",
+  "remotePath": "/var/www/project"
+}
+```
+
+If you need to skip host key verification (lab / dynamic hosts):
+```json
+{
+  "host": "ephemeral-host",
+  "remotePath": "/",
+  "strictHostKeyChecking": false
+}
+```
+
+Custom ssh config file:
+```json
+{
+  "host": "prod",
+  "remotePath": "/srv/app",
+  "sshConfigPath": "/root/.ssh/config"
+}
+```
+
+Precedence:
+1. Explicit values in `sftp.json`.
+2. Values from matching SSH Host section (supports wildcards & Include directives).
+3. Fallback username = current local user (env USER) if still missing.
+
+Mapped fields: `HostName -> host`, `User -> username`, `Port -> port`, `IdentityFile -> privateKeyPath` (first entry if multiple).
+
+Benefit: Keep secrets & shared connection details only in your SSH config; reuse across multiple projects with tiny `sftp.json` files.
+
 ## FAQ
 You can see all the Frequently Asked Questions [here](./FAQ.md).
 

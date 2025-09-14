@@ -1,7 +1,8 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as sshConfig from 'ssh-config';
+// removed direct usage of ssh-config parse in favor of resolver wrapper
+import { resolveHostFromSSHConfig } from './sshConfig';
 import app from '../app';
 import logger from '../logger';
 import { getUserSetting } from '../host';
@@ -235,39 +236,30 @@ function mergeConfigWithExternalRefer(
     return copyed;
   }
 
-  const parsedSSHConfig = sshConfig.parse(sshConfigContent);
-  const section = parsedSSHConfig.find({
-    Host: copyed.host,
-  });
-
-  if (section === null) {
-    return copyed;
-  }
-
-  const mapping = new Map([
-    ['hostname', 'host'],
-    ['port', 'port'],
-    ['user', 'username'],
-    ['identityfile', 'privateKeyPath'],
-    ['serveraliveinterval', 'keepalive'],
-    ['connecttimeout', 'connTimeout'],
-  ]);
-
-  section.config.forEach(line => {
-    if (!line.param) {
-      return;
-    }
-
-    const key = mapping.get(line.param.toLowerCase());
-
-    if (key !== undefined) {
-      if (key === 'host') {
-        copyed[key] = line.value;
-      } else {
-        setConfigValue(copyed, key, line.value);
+  // New resolution using compute; fallback to legacy block above removed.
+  try {
+    const resolved = resolveHostFromSSHConfig(copyed.host, { configPath: sshConfigPath });
+    if (resolved) {
+      if (resolved.hostname) {
+        copyed.host = resolved.hostname; // always use resolved real hostname
       }
+      if (copyed.username === undefined && resolved.user) {
+        copyed.username = resolved.user;
+      }
+      if (copyed.port === undefined && resolved.port) {
+        copyed.port = resolved.port;
+      }
+      if (copyed.privateKeyPath === undefined && resolved.identityFile) {
+        copyed.privateKeyPath = resolved.identityFile;
+      }
+      // pass-through extra options for ssh client
+      (copyed as any).proxyCommand = resolved.proxyCommand;
+      (copyed as any).certificateFile = resolved.certificateFile;
+      (copyed as any).userKnownHostsFile = resolved.userKnownHostsFile;
     }
-  });
+  } catch (e) {
+    logger.warn((e as Error).message, 'ssh config resolve failed');
+  }
 
   // Bug introduced in pull request #69 : Fix ssh config resolution
   /* const parsedSSHConfig = sshConfig.parse(sshConfigContent);

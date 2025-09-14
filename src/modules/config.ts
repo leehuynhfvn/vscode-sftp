@@ -17,7 +17,8 @@ const configScheme = {
   host: Joi.string().required(),
   port: Joi.number().integer(),
   connectTimeout: Joi.number().integer(),
-  username: Joi.string().required(),
+  // username now optional: can be resolved from ~/.ssh/config
+  username: Joi.string(),
   password: nullable(Joi.string()),
 
   agent: nullable(Joi.string()),
