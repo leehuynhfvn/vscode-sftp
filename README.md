@@ -41,6 +41,171 @@ To install just follow these steps from within VSCode:
 5. Reload VSCode.
 6. Voilà!
 
+### Method 3 (Command Line Installation)
+You can install the VSIX file directly from the command line using the VS Code CLI:
+
+```bash
+# Install from local VSIX file
+code --install-extension sftp-1.16.3.vsix
+
+# Or if you have downloaded it to a specific path
+code --install-extension /path/to/sftp-1.16.3.vsix
+
+# Install and reload VS Code windows automatically
+code --install-extension sftp-1.16.3.vsix --force
+```
+
+**Additional command-line options:**
+- `--force` - Overwrites existing extension if already installed
+- `--disable-extensions` - Install extension but keep it disabled initially
+
+**Verify installation:**
+```bash
+# List all installed extensions
+code --list-extensions
+
+# Check if SFTP extension is installed
+code --list-extensions | grep -i sftp
+```
+
+**For VS Code Insiders:**
+```bash
+# Use 'code-insiders' instead of 'code'
+code-insiders --install-extension sftp-1.16.3.vsix
+```
+
+**Uninstall from command line:**
+```bash
+# Find the exact extension ID first
+code --list-extensions | grep -i sftp
+
+# Uninstall (replace with actual extension ID)
+code --uninstall-extension Natizyskunk.sftp
+```
+
+### Linux-Specific Installation Methods
+
+#### Method 1: Direct Download and Install
+```bash
+# Download the latest VSIX file (replace URL with actual release URL)
+wget -O sftp-1.16.3.vsix https://github.com/Natizyskunk/vscode-sftp/releases/download/v1.16.3/sftp-1.16.3.vsix
+
+# Install the extension
+code --install-extension sftp-1.16.3.vsix
+
+# Remove the VSIX file after installation (optional)
+rm sftp-1.16.3.vsix
+```
+
+#### Method 2: Using curl
+```bash
+# Download and install in one command
+curl -L -o sftp-1.16.3.vsix https://github.com/Natizyskunk/vscode-sftp/releases/download/v1.16.3/sftp-1.16.3.vsix && \
+code --install-extension sftp-1.16.3.vsix && \
+rm sftp-1.16.3.vsix
+```
+
+#### Method 3: For Ubuntu/Debian Systems
+```bash
+# If VS Code is installed via snap
+/snap/bin/code --install-extension sftp-1.16.3.vsix
+
+# If VS Code is installed via .deb package
+/usr/bin/code --install-extension sftp-1.16.3.vsix
+```
+
+#### Method 4: For CentOS/RHEL/Fedora Systems
+```bash
+# Standard installation
+code --install-extension sftp-1.16.3.vsix
+
+# If installed via RPM package
+/usr/bin/code --install-extension sftp-1.16.3.vsix
+```
+
+#### Method 5: Headless Server Installation
+```bash
+# For headless Linux servers (no GUI)
+code --install-extension sftp-1.16.3.vsix --user-data-dir /home/user/.vscode-server
+
+# For remote development via SSH
+code-server --install-extension sftp-1.16.3.vsix
+```
+
+#### Method 6: Batch Installation Script
+Create a shell script for automated installation:
+
+```bash
+#!/bin/bash
+# install-sftp-extension.sh
+
+VSIX_URL="https://github.com/Natizyskunk/vscode-sftp/releases/download/v1.16.3/sftp-1.16.3.vsix"
+VSIX_FILE="sftp-1.16.3.vsix"
+
+echo "Downloading SFTP extension..."
+if command -v wget >/dev/null 2>&1; then
+    wget -O "$VSIX_FILE" "$VSIX_URL"
+elif command -v curl >/dev/null 2>&1; then
+    curl -L -o "$VSIX_FILE" "$VSIX_URL"
+else
+    echo "Error: Neither wget nor curl is available"
+    exit 1
+fi
+
+echo "Installing SFTP extension..."
+if command -v code >/dev/null 2>&1; then
+    code --install-extension "$VSIX_FILE" --force
+    echo "Extension installed successfully"
+else
+    echo "Error: VS Code CLI not found in PATH"
+    exit 1
+fi
+
+echo "Cleaning up..."
+rm "$VSIX_FILE"
+echo "Installation complete!"
+```
+
+Make it executable and run:
+```bash
+chmod +x install-sftp-extension.sh
+./install-sftp-extension.sh
+```
+
+#### Troubleshooting Linux Installation
+
+**VS Code CLI not found:**
+```bash
+# Add VS Code to PATH (Ubuntu/Debian)
+echo 'export PATH="$PATH:/usr/share/code/bin"' >> ~/.bashrc
+source ~/.bashrc
+
+# Or create a symbolic link
+sudo ln -s /usr/share/code/bin/code /usr/local/bin/code
+```
+
+**Permission issues:**
+```bash
+# Fix permissions for VS Code extensions directory
+sudo chown -R $USER:$USER ~/.vscode/extensions
+
+# Or install with specific user data directory
+code --install-extension sftp-1.16.3.vsix --user-data-dir ~/.vscode-custom
+```
+
+**For WSL (Windows Subsystem for Linux):**
+```bash
+# Use Windows VS Code from WSL
+code.cmd --install-extension sftp-1.16.3.vsix
+```
+
+This method is particularly useful for:
+- Automated deployment scripts
+- CI/CD pipelines
+- Remote server installations
+- Batch installation across multiple development environments
+- Docker containers or headless VS Code setups
+
 ## Documentation
 - [Home](https://github.com/Natizyskunk/vscode-sftp/wiki)
 - [Settings](https://github.com/Natizyskunk/vscode-sftp/wiki/Setting)
@@ -333,6 +498,112 @@ Precedence:
 Mapped fields: `HostName -> host`, `User -> username`, `Port -> port`, `IdentityFile -> privateKeyPath` (first entry if multiple).
 
 Benefit: Keep secrets & shared connection details only in your SSH config; reuse across multiple projects with tiny `sftp.json` files.
+
+## Development & Building
+
+This section covers how to build and develop the extension using Docker to ensure a consistent environment.
+
+### Prerequisites
+
+- Docker installed on your system
+- VS Code (for development and testing)
+
+### Building with Docker
+
+We use Docker to ensure consistent builds across different environments. The extension requires Node.js 20 and several build tools.
+
+#### Quick Build Commands
+
+For convenience, you can set up these aliases in your shell:
+
+```bash
+# Add to your ~/.bashrc or ~/.zshrc
+alias npm20='docker run --rm -it -v $(pwd):/workspace -w /workspace node:20'
+alias build-sftp='docker run --rm -it -v $(pwd):/workspace -w /workspace node:20 npm run compile'
+alias package-sftp='docker run --rm -it -v $(pwd):/workspace -w /workspace node:20 bash -c "npm install -g @vscode/vsce && npm run package"'
+```
+
+#### Step-by-Step Build Process
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/Natizyskunk/vscode-sftp.git
+   cd vscode-sftp
+   ```
+
+2. **Install dependencies (optional - Docker will handle this):**
+   ```bash
+   npm20 install
+   ```
+
+3. **Compile TypeScript:**
+   ```bash
+   # Using alias
+   build-sftp
+   
+   # Or directly
+   docker run --rm -it -v $(pwd):/workspace -w /workspace node:20 npm run compile
+   ```
+
+4. **Package the extension:**
+   ```bash
+   # Using alias
+   package-sftp
+   
+   # Or directly
+   docker run --rm -it -v $(pwd):/workspace -w /workspace node:20 bash -c "npm install -g @vscode/vsce && npm run package"
+   ```
+
+5. **Install the packaged extension:**
+   The build process creates a `sftp-1.16.3.vsix` file. Install it in VS Code:
+   - Open VS Code
+   - Go to Extensions (Ctrl+Shift+X)
+   - Click the "..." menu → "Install from VSIX..."
+   - Select the generated `.vsix` file
+
+#### Available NPM Scripts
+
+- `npm run compile` - Compile TypeScript using webpack (production mode)
+- `npm run dev` - Development build with file watching
+- `npm run package` - Create VSIX package file
+- `npm run test` - Run Jest tests
+
+#### Development Tips
+
+1. **Development with file watching:**
+   ```bash
+   docker run --rm -it -v $(pwd):/workspace -w /workspace node:20 npm run dev
+   ```
+
+2. **Running tests:**
+   ```bash
+   docker run --rm -it -v $(pwd):/workspace -w /workspace node:20 npm test
+   ```
+
+3. **Interactive Docker session for debugging:**
+   ```bash
+   docker run --rm -it -v $(pwd):/workspace -w /workspace node:20 bash
+   # Inside container, you can run any npm commands
+   ```
+
+#### Troubleshooting
+
+- **Permission issues**: Ensure your user has read/write access to the project directory
+- **Docker not found**: Make sure Docker is installed and running
+- **Build errors**: Check that all source files are properly formatted and TypeScript compiles without errors
+- **Missing dependencies**: The Docker container automatically installs dependencies, but you can manually run `npm install` if needed
+
+#### Contributing
+
+When contributing code changes:
+
+1. Make your changes
+2. Test locally using the Docker build process
+3. Ensure the extension compiles without errors
+4. Test the packaged extension in VS Code
+5. Submit a pull request
+
+The Docker-based build ensures that all contributors and CI/CD systems use the same Node.js version and build environment, reducing "works on my machine" issues.
 
 ## FAQ
 You can see all the Frequently Asked Questions [here](./FAQ.md).

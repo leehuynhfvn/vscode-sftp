@@ -92,8 +92,9 @@ export default class SSHClient extends RemoteClient {
       proc.stderr.on('data', d => error += d.toString());
       proc.on('error', reject);
       proc.on('exit', code => {
+        logger.debug(`SFTP command result: code=${code}, commands=${JSON.stringify(commands)}, output=${output.trim()}, error=${error.trim()}`);
         if (code === 0) return resolve(output);
-        reject(new Error(`${error || 'SFTP command failed'}\nCommand: sftp ${args.join(' ')}\nOUTPUT: ${output.trim()}`));
+        reject(new Error(`${error || 'SFTP command failed'}\nCommand: sftp ${args.join(' ')}\nCommands: ${commands.join('; ')}\nOUTPUT: ${output.trim()}`));
       });
       proc.stdin.write(commands.join('\n') + '\nexit\n');
       proc.stdin.end();

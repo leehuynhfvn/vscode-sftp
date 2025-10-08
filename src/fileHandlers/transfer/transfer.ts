@@ -434,6 +434,16 @@ export async function transfer(
     filePerm: config?.filePerm,
     dirPerm: config?.dirPerm
   };
+  
+  if (config.srcFsPath.includes('nagios') || config.targetFsPath.includes('nagios')) {
+    logger.info('Transfer debug for nagios:', {
+      srcPath: config.srcFsPath,
+      targetPath: config.targetFsPath,
+      fileType: stat.type === 1 ? 'Directory' : 'File',
+      direction: config.transferDirection === TransferDirection.REMOTE_TO_LOCAL ? 'REMOTE_TO_LOCAL' : 'LOCAL_TO_REMOTE'
+    });
+  }
+  
   await transferWithType({ ...config, transferOption, ensureDirExist: true }, stat.type, collect);
 }
 

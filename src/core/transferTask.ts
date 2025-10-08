@@ -83,6 +83,16 @@ export default class TransferTask implements Task {
     const target = this._targetFsPath;
     const srcFs = this._srcFs;
     const targetFs = this._targetFs;
+    
+    if (src.includes('nagios') || target.includes('nagios')) {
+      logger.info('TransferTask.run() for nagios:', {
+        src,
+        target,
+        fileType: this.fileType === 1 ? 'Directory' : this.fileType === 2 ? 'File' : `Unknown(${this.fileType})`,
+        transferDirection: this._transferDirection
+      });
+    }
+    
     switch (this.fileType) {
       case FileType.File:
         await this._transferFile();
@@ -117,6 +127,9 @@ export default class TransferTask implements Task {
     const target = this._targetFsPath;
     const srcFs = this._srcFs;
     const targetFs = this._targetFs;
+    
+    // Debug logging to understand why _transferFile is called
+    logger.info(`TransferTask._transferFile() - Processing: src="${src}", target="${target}", fileType=${this.fileType}, direction=${this._transferDirection}`);
     const {
       perserveTargetMode,
       useTempFile,

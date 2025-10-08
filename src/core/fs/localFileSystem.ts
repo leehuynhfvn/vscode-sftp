@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as fse from 'fs-extra';
-import FileSystem, { FileEntry, FileStats, FileOption } from './fileSystem';
+import FileSystem, { FileEntry, FileStats, FileOption, FileType } from './fileSystem';
 
 export default class LocalFileSystem extends FileSystem {
   constructor(pathResolver: any) {
@@ -42,7 +42,27 @@ export default class LocalFileSystem extends FileSystem {
     });
   }
 
-  open(path: string, flags: string, mode?: number): Promise<number> {
+  async open(path: string, flags: string, mode?: number): Promise<number> {
+    // Check if path is a directory first to prevent EISDIR errors
+    try {
+      const stats = await this.lstat(path);
+      if (stats.type === FileType.Directory) {
+        // Import logger dynamically to avoid circular imports
+        const logger = require('../../logger').default;
+        logger.error('LocalFileSystem.open() - Attempting to open directory as file:', {
+          path,
+          flags,
+          mode,
+          fileType: stats.type
+        });
+        throw new Error(`EISDIR: illegal operation on a directory, open '${path}'`);
+      }
+    } catch (error) {
+      // If lstat fails, let fse.open handle it (file might not exist yet for write operations)
+      if (error.message.includes('EISDIR')) {
+        throw error;
+      }
+    }
     return fse.open(path, flags, mode);
   }
 
@@ -128,6 +148,10 @@ export default class LocalFileSystem extends FileSystem {
     return new Promise<void>((resolve, reject) => {
       fs.mkdir(dir, err => {
         if (err) {
+          // Ignore error if directory already exists
+          if (err.code === 'EEXIST') {
+            return resolve(); // Success - directory exists
+          }
           reject(err);
           return;
         }
@@ -137,7 +161,13 @@ export default class LocalFileSystem extends FileSystem {
   }
 
   ensureDir(dir: string): Promise<void> {
-    return fse.ensureDir(dir);
+    return fse.ensureDir(dir).catch(error => {
+      // Ignore error if directory already exists
+      if (error.code === 'EEXIST') {
+        return; // Success - directory exists
+      }
+      throw error; // Re-throw other errors
+    });
   }
 
   toFileEntry(fullPath: string, stat: FileStats): FileEntry {
