@@ -3,31 +3,37 @@ import * as path from 'path';
 import { COMMAND_DOWNLOAD_FROM_REMOTE } from '../constants';
 import { getWorkspaceFolders } from '../host';
 import { getAllFileService } from '../modules/serviceManager';
-import { showOpenDialog, showInformationMessage, showErrorMessage } from '../host';
+import { showInformationMessage, showErrorMessage } from '../host';
 import { checkCommand } from './abstract/createCommand';
 
 // Helper function to download directory recursively
 async function downloadDirectoryRecursive(remoteFs: any, localFs: any, remotePath: string, localPath: string) {
-  // Ensure local directory exists
-  await localFs.ensureDir(localPath);
-  
-  // List remote directory contents
-  const entries = await remoteFs.list(remotePath);
-  
-  for (const entry of entries) {
-    const remoteItemPath = path.posix.join(remotePath, entry.name);
-    const localItemPath = path.join(localPath, entry.name);
+  try {
+    // Ensure local directory exists
+    await localFs.ensureDir(localPath);
     
-    if (entry.type === 1) { // Directory
-      await downloadDirectoryRecursive(remoteFs, localFs, remoteItemPath, localItemPath);
-    } else { // File
-      try {
-        const fileStream = await remoteFs.get(remoteItemPath);
-        await localFs.put(fileStream, localItemPath);
-      } catch (error) {
-        console.error(`Failed to download file ${remoteItemPath}:`, error.message);
+    // List remote directory contents
+    const entries = await remoteFs.list(remotePath);
+    
+    for (const entry of entries) {
+      const remoteItemPath = path.posix.join(remotePath, entry.name);
+      const localItemPath = path.join(localPath, entry.name);
+      
+      if (entry.type === 1) { // Directory
+        await downloadDirectoryRecursive(remoteFs, localFs, remoteItemPath, localItemPath);
+      } else { // File
+        try {
+          const fileStream = await remoteFs.get(remoteItemPath);
+          await localFs.put(fileStream, localItemPath);
+        } catch (error) {
+          console.error(`Failed to download file ${remoteItemPath}:`, error.message);
+          // Continue with other files even if one fails
+        }
       }
     }
+  } catch (error) {
+    console.error(`Failed to process directory ${remotePath}:`, error.message);
+    throw error; // Re-throw directory-level errors
   }
 }
 
@@ -70,7 +76,7 @@ export default checkCommand({
 
       // Ask user for remote path
       const remotePath = await vscode.window.showInputBox({
-        prompt: 'Enter remote file or directory path to download',
+        prompt: 'Enter remote path to download (will preserve directory structure in workspace)',
         placeHolder: '/path/to/remote/file/or/directory',
         value: '/',
       });
@@ -79,24 +85,18 @@ export default checkCommand({
         return; // User cancelled
       }
 
-      // Ask user for local destination
-      const openDialogOptions: vscode.OpenDialogOptions = {
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        openLabel: 'Select Local Destination',
-      };
-
-      const localDestinations = await showOpenDialog(openDialogOptions);
-      if (!localDestinations || localDestinations.length === 0) {
-        return; // User cancelled
-      }
-
-      const localDestinationDir = localDestinations[0].fsPath;
+      // Use workspace base directory as destination - preserve remote path structure
+      const workspaceBaseDir = selectedFileService.baseDir;
       
-      // Determine the final local path
-      const remoteBaseName = path.basename(remotePath);
-      const finalLocalPath = path.join(localDestinationDir, remoteBaseName);
+      // Create local path that mirrors the remote structure
+      // If remote path is absolute (starts with /), create relative path in workspace
+      let relativePath = remotePath;
+      if (remotePath.startsWith('/')) {
+        // Remove leading slash for workspace-relative path
+        relativePath = remotePath.substring(1);
+      }
+      
+      const finalLocalPath = path.join(workspaceBaseDir, relativePath);
 
       // Get remote filesystem to check file type
       const config = selectedFileService.getConfig();
@@ -129,14 +129,14 @@ export default checkCommand({
       await localFs.ensureDir(localDir);
 
       if (isDirectory) {
-        showInformationMessage(`Downloading directory: ${remotePath} to ${finalLocalPath}`);
+        showInformationMessage(`Downloading directory recursively: ${remotePath} → workspace${path.sep}${relativePath}`);
         
         // Download directory recursively
         await downloadDirectoryRecursive(remoteFs, localFs, remotePath, finalLocalPath);
         
-        showInformationMessage(`Directory downloaded successfully: ${finalLocalPath}`);
+        showInformationMessage(`Directory downloaded successfully with preserved structure: ${finalLocalPath}`);
       } else {
-        showInformationMessage(`Downloading file: ${remotePath} to ${finalLocalPath}`);
+        showInformationMessage(`Downloading file: ${remotePath} → workspace${path.sep}${relativePath}`);
         
         // Download single file
         const fileStream = await remoteFs.get(remotePath);

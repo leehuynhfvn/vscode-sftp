@@ -106,8 +106,8 @@ export default class SFTPFileSystem extends RemoteFileSystem {
   }
 
   async list(dir: string, option?: any): Promise<FileEntry[]> {
-    // Sử dụng sftp lệnh 'ls -l' để liệt kê file
-    const out = await (this.client as any).runSftpCommand([`ls -l "${dir}"`]);
+    // Sử dụng sftp lệnh 'ls -la' để liệt kê file bao gồm hidden files
+    const out = await (this.client as any).runSftpCommand([`ls -la "${dir}"`]);
     const logger = await import('../../logger');
     
     // Filter out sftp prompt lines and only process actual file entries
@@ -123,7 +123,8 @@ export default class SFTPFileSystem extends RemoteFileSystem {
         logger.default.info(`SFTPFileSystem.list() - Entry: "${name}", First char: "${line[0]}", Type: ${type} (1=Directory, 2=File)`);
         
         return entry;
-      });
+      })
+      .filter(entry => entry.name !== '.' && entry.name !== '..'); // Filter out current and parent directory entries
     
     return entries;
   }
@@ -133,7 +134,7 @@ export default class SFTPFileSystem extends RemoteFileSystem {
     const logger = await import('../../logger');
     
     try {
-      const out = await (this.client as any).runSftpCommand([`ls -l "${path}"`]);
+      const out = await (this.client as any).runSftpCommand([`ls -la "${path}"`]);
       const lines = out.trim().split('\n').filter(l => l.trim());
       logger.default.info(`SFTPFileSystem.lstat() - Path: "${path}", Output lines: ${JSON.stringify(lines)}`);
       
