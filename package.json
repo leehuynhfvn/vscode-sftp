@@ -194,6 +194,11 @@
         "category": "SFTP"
       },
       {
+        "command": "sftp.sync.fromRemote",
+        "title": "Sync from Remote Path",
+        "category": "SFTP"
+      },
+      {
         "command": "sftp.forceDownload",
         "title": "Force Download",
         "category": "SFTP"
